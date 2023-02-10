@@ -8,6 +8,7 @@ Usage:
   liquidctl [options] set <channel> speed <percentage>
   liquidctl [options] set <channel> color <mode> [<color>] ...
   liquidctl [options] set <channel> screen <mode> [<value>]
+  liquidctl [options] interactive
   liquidctl --help
   liquidctl --version
 
@@ -123,6 +124,7 @@ _PARSE_ARG = {
     '--unsafe': lambda x: x.lower().split(','),
     '--verbose': bool,
     '--debug': bool,
+    '--interactive': bool
 }
 
 # options that cause liquidctl.driver.find_liquidctl_devices to ommit devices
@@ -355,6 +357,75 @@ class _ErrorAcc:
     def is_empty(self):
         return not bool(self._errors)
 
+# line-based interactive mode for a single device
+# input commands as if they came from the command line
+# outputs encapsulated json
+# program may exit if you enter invalid commands
+def run_interactive(dev):
+    _LOGGER.debug('device: %s', dev.description)
+
+    # setup fake argv for opts
+    fake_argv = sys.argv[1:]
+    fake_argv.remove('interactive')
+
+    try:
+        while True:
+            line = input()
+
+            if line == 'exit':
+                break
+
+            # create fake args and opts as if it was from command line
+            argv = fake_argv.copy()
+            argv += line.strip().split(' ')
+
+            args = docopt(__doc__, argv=argv)
+            opts = _make_opts(args)
+
+            # encapsulate everything in json
+            outer_json = {}
+            outer_json['status'] = 'success'
+            outer_json['data'] = ''
+
+            with dev.connect(**opts):
+                if args['status']:
+                    status = dev.get_status(**opts)
+                    obj_buf = []
+                    obj_buf.append(_dev_status_obj(dev, status))
+                    outer_json['data'] = obj_buf
+                elif args['set'] and args['speed']:
+                    _device_set_speed(dev, args, **opts)
+                elif args['set'] and args['color']:
+                    _device_set_color(dev, args, **opts)
+                elif args['set'] and args['screen']:
+                    _device_set_screen(dev, args, **opts)
+                else:
+                    outer_json['status'] = 'error'
+                    outer_json['data'] = 'invalid command'
+
+            print(json.dumps(outer_json, ensure_ascii=(os.getenv('LANG', None) == 'C'),
+                    default=lambda x: str(x)))
+    except EOFError as err:
+        _LOGGER.debug('interactive mode ended by EOF')
+    except LiquidctlError as err:
+        errors.log(f'{dev.description}: {err}', err=err)
+    except OSError as err:
+        # each backend API returns a different subtype of OSError (OSError,
+        # usb.core.USBError or PermissionError) for permission issues
+        if err.errno in [errno.EACCES, errno.EPERM]:
+            errors.log(f'{dev.description}: insufficient permissions', err=err)
+        elif err.args == ('open failed', ):
+            errors.log(
+                f'{dev.description}: could not open, possibly due to insufficient permissions',
+                err=err
+            )
+        else:
+            errors.log(f'{dev.description}: unexpected OS error', err=err, show_err=True)
+    except Exception as err:
+        errors.log(f'{dev.description}: unexpected error', err=err, show_err=True)
+
+    return errors.exit_code()
+
 
 def main():
     args = docopt(__doc__)
@@ -406,6 +477,10 @@ def main():
 
     errors = _ErrorAcc()
 
+    # interactive mode will always be in json
+    if args['interactive']:
+        args['--json'] = True
+
     # unlike humans, machines want to know everything; imply verbose everywhere
     # other than when setting default logging level and format (which are
     # inherently for human consumption)
@@ -450,6 +525,13 @@ def main():
         return errors.exit_code()
     elif len(selected) == 0:
         errors.log('no device matches available drivers and selection criteria')
+        return errors.exit_code()
+
+    if args['interactive']:
+        if len(selected) != 1:
+            errors.log('interactive mode only allows one device, filter or select one (see: liquidctl --help)')
+            return errors.exit_code()
+        run_interactive(selected[0])
         return errors.exit_code()
 
     # for json
