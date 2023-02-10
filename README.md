@@ -1,5 +1,7 @@
 # liquidctl – liquid cooler control
 
+Custom made liquidctl with a simple interactive mode to stop [FanControl.Liquidctl](https://github.com/SuspiciousActivity/FanControl.Liquidctl) from starting the program every second. Works for my machine (Kraken X63) but not tested for anything else at all, **use at your own risk**. This applies to the FanControl repo as well.
+
 _Cross-platform tool and drivers for liquid coolers and other devices_
 
 [![Status of the tests](https://github.com/liquidctl/liquidctl/workflows/tests/badge.svg)](https://github.com/liquidctl/liquidctl/commits/main)
