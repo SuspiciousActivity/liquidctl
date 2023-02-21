@@ -8,6 +8,11 @@ _Cross-platform tool and drivers for liquid coolers and other devices_
 [![Developer's Discord server](https://img.shields.io/discord/780568774964805672)](https://discord.gg/GyCBjQhqCd)
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/4949/badge)](https://bestpractices.coreinfrastructure.org/projects/4949)
 
+---
+
+Notice: please check out our [open invitation for new team members](https://github.com/liquidctl/liquidctl/issues/569).
+
+---
 
 ```
 $ liquidctl list
@@ -802,7 +807,7 @@ this program.  If not, see <https://www.gnu.org/licenses/>.
 Sibling project of Linux kernel _hwmon_ drivers for devices supported by
 liquidctl.
 
-### [codifryed/coolero](https://gitlab.com/codifryed/coolero)
+### [coolercontrol/coolercontrol](https://gitlab.com/coolercontrol/coolercontrol)
 
 Graphical interface to monitor and control cooling devices supported by
 liquidctl.
