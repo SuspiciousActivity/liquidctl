@@ -361,7 +361,7 @@ class _ErrorAcc:
 # input commands as if they came from the command line
 # outputs encapsulated json
 # program may exit if you enter invalid commands
-def run_interactive(dev):
+def run_interactive(dev, errors):
     _LOGGER.debug('device: %s', dev.description)
 
     # setup fake argv for opts
@@ -531,7 +531,7 @@ def main():
         if len(selected) != 1:
             errors.log('interactive mode only allows one device, filter or select one (see: liquidctl --help)')
             return errors.exit_code()
-        run_interactive(selected[0])
+        run_interactive(selected[0], errors)
         return errors.exit_code()
 
     # for json
