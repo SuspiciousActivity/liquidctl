@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""liquidcli – an interactive, line based cli for liquidctl devices
+
+This is a experimental script that continuously dumps the status of all
+available devices to stdout in newline-delimited JSON.
+
+Usage:
+  liquidcli [options]
+  liquidcli --help
+  liquidcli --version
+
+Options:
+  --legacy-690lc          Use Asetek 690LC in legacy mode (old Krakens)
+  --vendor <id>           Filter devices by vendor id
+  --product <id>          Filter devices by product id
+  --release <number>      Filter devices by release number
+  --serial <number>       Filter devices by serial number
+  --bus <bus>             Filter devices by bus
+  --address <address>     Filter devices by address in bus
+  --usb-port <port>       Filter devices by USB port in bus
+  -v, --verbose           Output additional information
+  -g, --debug             Show debug information on stderr
+  --version               Display the version number
+  --help                  Show this message
+
+Commands:
+  - initialize
+  - status
+  - set <channel> speed (<temperature> <percentage>) ...
+  - set <channel> speed <percentage>
+  - set <channel> color <mode> [<color>] ...
+  - set <channel> screen <mode> [<value>]
+  - exit
+
+Copyright Jonas Malaco and contributors
+SPDX-License-Identifier: GPL-3.0-or-later
+"""
+
+import json
+import logging
+import sys
+import time
+import os
+
+import liquidctl.cli as _borrow
+import usb
+from docopt import docopt
+from liquidctl.error import LiquidctlError
+from liquidctl.driver import *
+
+_LOGGER = logging.getLogger(__name__)
+
+FAKE_DOC = """interactive mode commands
+
+Usage:
+  - initialize
+  - status
+  - set <channel> speed (<temperature> <percentage>) ...
+  - set <channel> speed <percentage>
+  - set <channel> color <mode> [<color>] ...
+  - set <channel> screen <mode> [<value>]
+  - exit
+"""
+
+# line-based interactive mode for a single device
+# input commands as if they came from the command line
+# outputs encapsulated json
+# program may exit if you enter invalid commands
+def run_interactive(dev, errors):
+    _LOGGER.debug('device: %s', dev.description)
+
+    try:
+        while True:
+            line = input()
+
+            if line == 'exit':
+                break
+
+            args = docopt(FAKE_DOC, argv=line.strip().split(' '))
+            opts = _borrow._make_opts(args)
+
+            # encapsulate everything in json
+            outer_json = {}
+            outer_json['status'] = 'success'
+            outer_json['data'] = ''
+
+            with dev.connect(**opts):
+                if args['initialize']:
+                    status = dev.initialize(**opts)
+                    obj_buf = []
+                    obj_buf.append(_borrow._dev_status_obj(dev, status))
+                    outer_json['data'] = obj_buf
+                elif args['status']:
+                    status = dev.get_status(**opts)
+                    obj_buf = []
+                    obj_buf.append(_borrow._dev_status_obj(dev, status))
+                    outer_json['data'] = obj_buf
+                elif args['set'] and args['speed']:
+                    _borrow._device_set_speed(dev, args, **opts)
+                elif args['set'] and args['color']:
+                    _borrow._device_set_color(dev, args, **opts)
+                elif args['set'] and args['screen']:
+                    _borrow._device_set_screen(dev, args, **opts)
+                else:
+                    outer_json['status'] = 'error'
+                    outer_json['data'] = 'invalid command'
+
+            print(json.dumps(outer_json, ensure_ascii=(os.getenv('LANG', None) == 'C'),
+                    default=lambda x: str(x)))
+    except EOFError as err:
+        _LOGGER.debug('interactive mode ended by EOF')
+    except LiquidctlError as err:
+        errors.log(f'{dev.description}: {err}', err=err)
+    except OSError as err:
+        # each backend API returns a different subtype of OSError (OSError,
+        # usb.core.USBError or PermissionError) for permission issues
+        if err.errno in [errno.EACCES, errno.EPERM]:
+            errors.log(f'{dev.description}: insufficient permissions', err=err)
+        elif err.args == ('open failed', ):
+            errors.log(
+                f'{dev.description}: could not open, possibly due to insufficient permissions',
+                err=err
+            )
+        else:
+            errors.log(f'{dev.description}: unexpected OS error', err=err, show_err=True)
+    except Exception as err:
+        errors.log(f'{dev.description}: unexpected error', err=err, show_err=True)
+
+    return errors.exit_code()
+
+def cli_main():
+    args = docopt(__doc__, version='0.1.1')
+    frwd = _borrow._make_opts(args)
+    devs = list(find_liquidctl_devices(**frwd))
+
+    if args['--debug']:
+        args['--verbose'] = True
+        logging.basicConfig(level=logging.DEBUG, format='[%(levelname)s] %(name)s: %(message)s')
+    elif args['--verbose']:
+        logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    else:
+        logging.basicConfig(level=logging.WARNING, format='%(message)s')
+        sys.tracebacklimit = 0
+
+    errors = _borrow._ErrorAcc()
+
+    if len(devs) == 0:
+        errors.log('no device matches available drivers and selection criteria')
+        return errors.exit_code()
+    elif len(devs) != 1:
+        errors.log('liquidcli only allows one device, filter or select one (see: liquidcli --help)')
+        return errors.exit_code()
+
+    run_interactive(devs[0], errors)
+    return errors.exit_code()
+
+if __name__ == '__main__':
+    sys.exit(cli_main())
